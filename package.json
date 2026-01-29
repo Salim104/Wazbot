@@ -1,0 +1,32 @@
+{
+  "name": "wazbot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "npx convex dev",
+    "worker": "npx tsx worker/index.ts",
+    "check": "node check-setup.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bullmq": "^5.67.2",
+    "convex": "^1.31.6",
+    "dotenv": "^17.2.3",
+    "ioredis": "^5.9.2",
+    "puppeteer": "^24.36.1",
+    "qrcode-terminal": "^0.12.0",
+    "redis": "^5.10.0",
+    "whatsapp-web.js": "github:lindionez/whatsapp-web.js"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "@types/qrcode-terminal": "^0.12.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

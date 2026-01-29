@@ -1,0 +1,15 @@
+.tmp/
+.env
+.env.local
+credentials.json
+token.json
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Convex
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Node
+node_modules/
