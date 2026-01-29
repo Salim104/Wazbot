@@ -9,6 +9,9 @@ export const MENU_STATES = {
     LOGOUT_CONFIRM: 'LOGOUT_CONFIRM',
     BULK_SAVE_CONFIRM: 'BULK_SAVE_CONFIRM',
     AUTO_SAVE_CONFIRM: 'AUTO_SAVE_CONFIRM',
+    GOOGLE_SYNC_CONFIRM: 'GOOGLE_SYNC_CONFIRM',
+    PHONE_SYNC_SETTINGS: 'PHONE_SYNC_SETTINGS',
+    PHONE_SYNC_CONFIRM: 'PHONE_SYNC_CONFIRM',
 };
 
 export const MENUS = {
@@ -18,6 +21,8 @@ export const MENUS = {
 3. 📥 Start Bulk Contact Save
 4. 📣 Send Announcement
 5. 🚪 Logout
+6. 🌐 Google Sync Settings (Optional)
+7. 📱 Phone Contact Sync (Native)
 
 _Reply with a number to choose._`,
 
@@ -55,6 +60,26 @@ WazBot will scan ALL your chats and save any unlisted numbers. This might take a
 
     AUTO_SAVE_CONFIRM: `*⚙️ Confirm Auto-save {{action}}?*
 New contacts who message you will be {{result}}.
+
+1. ✅ Confirm
+2. ❌ Cancel`,
+
+    GOOGLE_SYNC_CONFIRM: `*🌐 Connect Google Contacts (Premium)*
+Link your Google Account to automatically sync WazBot contacts to your phone's address book.
+
+1. 🔗 Generate Link
+2. ❌ Cancel`,
+
+    PHONE_SYNC_SETTINGS: `*📱 Native Phone Sync*
+Directly save contacts to your phone's address book.
+Current Status: {{status}}
+
+1. ✅ Enable
+2. ❌ Disable
+3. 🔙 Back`,
+
+    PHONE_SYNC_CONFIRM: `*⚠️ Confirm Phone Sync {{action}}?*
+New contacts will be {{result}} to your phone's physical address book.
 
 1. ✅ Confirm
 2. ❌ Cancel`,

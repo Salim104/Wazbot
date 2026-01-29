@@ -1,14 +1,14 @@
+import 'dotenv/config';
 import { Client, RemoteAuth } from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import { ConvexHttpClient } from 'convex/browser';
+import { google } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
 import { api } from '../convex/_generated/api';
 import { ConvexStore } from './convexStore';
-import * as dotenv from 'dotenv';
 import { Id } from '../convex/_generated/dataModel';
 import { MENU_STATES, MENUS, getStatusProgress } from './menus';
 import { setupQueues, bulkSaveQueue, announcementQueue } from './queues';
-
-dotenv.config();
 
 // ... (worker set up)
 
@@ -22,6 +22,8 @@ if (!CONVEX_URL || !OWNER_ID) {
 
 const convexClient = new ConvexHttpClient(CONVEX_URL);
 const store = new ConvexStore(CONVEX_URL, OWNER_ID);
+
+import { googleAuthService } from './googleAuth';
 
 // --- WINDOWS STABILITY SHIELD ---
 process.on('uncaughtException', (err) => {
@@ -81,6 +83,11 @@ async function initializeWorker() {
                 '--no-zygote',
                 '--disable-gpu'
             ]
+        },
+        // Forced stable version to fix "markedUnread" and "ready" event hangs
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/refs/heads/main/html/2.3000.1032521188-alpha.html'
         }
     });
 
@@ -98,6 +105,7 @@ async function initializeWorker() {
     client.on('authenticated', () => {
         console.log('--- EVENT: AUTHENTICATED ---');
         console.log('Session is valid. Syncing with WhatsApp servers...');
+        console.log('Waiting for "ready" event...');
     });
 
     client.on('auth_failure', msg => {
@@ -143,12 +151,27 @@ async function initializeWorker() {
 
     // Unified message handler
     const handleMessage = async (msg: any) => {
-        const body = msg.body || '';
-        const sessionRecord = await convexClient.query(api.sessions.getByOwner, { ownerId: OWNER_ID });
-        if (!sessionRecord || !sessionRecord.ownerWid) {
-            console.log('--- MSG IGNORED: No owner details yet in Convex ---');
-            return;
-        }
+        try {
+            if (!isReady && !msg.fromMe) {
+                console.log(`📩 Received message from ${msg.from} but bot is not READY yet.`);
+            }
+            
+            const body = msg.body || '';
+            const sessionRecord = await convexClient.query(api.sessions.getByOwner, { ownerId: OWNER_ID });
+            if (!sessionRecord || !sessionRecord.ownerWid) {
+                console.log('--- MSG IGNORED: No owner details yet in Convex ---');
+                return;
+            }
+
+            const send = async (to: string, content: string) => {
+                console.log(`📤 Sending message to ${to}...`);
+                try {
+                    await client.sendMessage(to, content);
+                    console.log(`✅ Message sent to ${to}`);
+                } catch (e: any) {
+                    console.error(`❌ Failed to send message to ${to}:`, e.message);
+                }
+            };
 
         const from = msg.from;
         const to = msg.to;
@@ -161,17 +184,91 @@ async function initializeWorker() {
             console.log(`📩 Owner command: "${body.substring(0, 15)}"`);
         }
         
-        if (!isOwner) {
+        if (!isOwner && !fromMe && !msg.isStatus) {
             // Milestone 3 logic: Auto-save context
             if (sessionRecord.autoSaveEnabled) {
                 const contact = await msg.getContact();
                 if (!contact.isMyContact) {
-                    console.log(`Auto-saving contact: ${msg.from}`);
-                    await (convexClient as any).mutation(api.contacts.saveContact, {
+                    const contactName = contact.pushname || contact.name || 'WhatsApp User';
+                    const metadata = { name: contactName, lastInteraction: Date.now() };
+                    
+                    // 1. Save to Convex
+                    console.log(`💾 Saving lead to Convex: ${msg.from} (${contactName})`);
+                    const contactId = await (convexClient as any).mutation(api.contacts.saveContact, {
                         sessionId: sessionRecord._id,
                         waId: msg.from,
-                        metadata: { name: contact.pushname || contact.name, lastInteraction: Date.now() }
+                        metadata
                     });
+
+                    // 2. Sync to Google if connected
+                    if (sessionRecord.googleAccessToken) {
+                        try {
+                            const tokens = {
+                                access_token: sessionRecord.googleAccessToken,
+                                refresh_token: sessionRecord.googleRefreshToken,
+                                expiry_date: sessionRecord.googleTokenExpiry
+                            };
+                            
+                            // Check if already synced
+                            const dbContacts = await convexClient.query(api.contacts.getContacts, { sessionId: sessionRecord._id });
+                            const dbContact = dbContacts.find((c: any) => c.waId === msg.from);
+
+                            if (!dbContact?.googleContactId) {
+                                console.log(`🔄 Syncing ${msg.from} to Google Contacts...`);
+                                const googleRes = await googleAuthService.syncContact(tokens, {
+                                    name: metadata.name,
+                                    phone: `+${msg.from.split('@')[0]}`
+                                });
+                                
+                                if (googleRes && googleRes.resourceName) {
+                                    await (convexClient as any).mutation(api.contacts.updateGoogleContactId, {
+                                        contactId: dbContact?._id || contactId,
+                                        googleContactId: googleRes.resourceName
+                                    });
+                                    console.log(`✅ Synced to Google: ${googleRes.resourceName}`);
+                                }
+                            }
+                        } catch (googleErr: any) {
+                            console.warn(`⚠️ Google Sync non-critical error: ${googleErr.message}`);
+                        }
+                    }
+
+                    // 3. Sync to Phone directly if enabled (Milestone 7)
+                    if (sessionRecord.phoneSyncEnabled) {
+                        try {
+                            const nameParts = metadata.name.split(' ');
+                            const firstName = nameParts[0] || 'WazBot';
+                            const lastName = nameParts.slice(1).join(' ') || 'Contact';
+                            
+                            // 🧠 THE LID FIX (Community Solution):
+                            // 1. Resolve real number from LID
+                            let realNumber = contact.number;
+                            if (msg.from.endsWith('@lid') && (!realNumber || realNumber.includes('lid'))) {
+                                realNumber = (contact as any).id.user || realNumber;
+                                if (realNumber && realNumber.includes('lid')) realNumber = undefined;
+                            }
+
+                            if (realNumber) {
+                                // 2. Normalize to standard @c.us format if it hasn't been already
+                                // Digits only or +digits is preferred by internal saveContactAction
+                                const digitsOnly = realNumber.replace(/\D/g, '');
+
+                                console.log(`📱 Syncing to Address Book: ${digitsOnly} (${metadata.name})`);
+                                await (client as any).saveOrEditAddressbookContact(
+                                    digitsOnly,
+                                    firstName,
+                                    lastName,
+                                    true // syncToAddressbook
+                                );
+                                console.log(`✅ Native Phone Sync successful for ${digitsOnly}`);
+                            } else {
+                                console.warn(`ℹ️ Native Sync skipped for ${msg.from}: Real number could not be resolved.`);
+                            }
+                        } catch (nativeErr: any) {
+                            console.warn(`⚠️ Native Sync internal WA block for ${msg.from}: ${nativeErr.message}`);
+                            console.log('💡 TIP: Use Google Sync (Option 6) for 100% reliability with hidden numbers.');
+                        }
+                    }
                 }
             }
 
@@ -201,7 +298,30 @@ async function initializeWorker() {
                 sessionId: sessionRecord._id,
                 menuState: MENU_STATES.MAIN_MENU
             });
-            return client.sendMessage(msg.from, MENUS.MAIN_MENU);
+            return send(msg.from, MENUS.MAIN_MENU);
+        }
+
+        if (input.startsWith('$auth ')) {
+            const code = input.substring(6).trim();
+            try {
+                const tokens = await googleAuthService.getTokensFromCode(code);
+                await (convexClient as any).mutation(api.sessions.saveGoogleTokens, {
+                    sessionId: sessionRecord._id,
+                    accessToken: tokens.access_token,
+                    refreshToken: tokens.refresh_token,
+                    expiryDate: tokens.expiry_date
+                });
+                await client.sendMessage(msg.from, '✅ Google Account connected successfully! WazBot will now sync contacts to your phone automatically.');
+                
+                // Return to main menu
+                await (convexClient as any).mutation(api.sessions.updateMenuState, {
+                    sessionId: sessionRecord._id,
+                    menuState: MENU_STATES.MAIN_MENU
+                });
+                return send(msg.from, MENUS.MAIN_MENU);
+            } catch (err: any) {
+                return send(msg.from, `❌ Failed to connect Google Account: ${err.message}`);
+            }
         }
 
         // 2. State-based numeric routing
@@ -215,7 +335,7 @@ async function initializeWorker() {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.STATUS_METRICS
                     });
-                    return client.sendMessage(msg.from, getStatusProgress(sessionRecord.metrics));
+                    return send(msg.from, getStatusProgress(sessionRecord.metrics));
                 } else if (choice === 2) {
                     // Auto-save settings
                     await convexClient.mutation(api.sessions.updateMenuState, {
@@ -223,44 +343,128 @@ async function initializeWorker() {
                         menuState: MENU_STATES.AUTO_SAVE_SETTINGS
                     });
                     const text = MENUS.AUTO_SAVE_SETTINGS.replace('{{status}}', sessionRecord.autoSaveEnabled ? '✅ Enabled' : '❌ Disabled');
-                    return client.sendMessage(msg.from, text);
+                    return send(msg.from, text);
                 } else if (choice === 3) {
                     // Redirect to Bulk Save Confirm
                     await convexClient.mutation(api.sessions.updateMenuState, {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.BULK_SAVE_CONFIRM
                     });
-                    return client.sendMessage(msg.from, MENUS.BULK_SAVE_CONFIRM);
+                    return send(msg.from, MENUS.BULK_SAVE_CONFIRM);
                 } else if (choice === 4) {
                     // Send Announcement - Step 1: Draft
                     await (convexClient as any).mutation(api.sessions.updateMenuState, {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.ANNOUNCEMENT_DRAFT
                     });
-                    return client.sendMessage(msg.from, MENUS.ANNOUNCEMENT_DRAFT);
+                    return send(msg.from, MENUS.ANNOUNCEMENT_DRAFT);
                 } else if (choice === 5) {
                     // Redirect to Logout Confirm
                     await convexClient.mutation(api.sessions.updateMenuState, {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.LOGOUT_CONFIRM
                     });
-                    return client.sendMessage(msg.from, MENUS.LOGOUT_CONFIRM);
-                } else {
-                    client.sendMessage(msg.from, 'Invalid option. Reply with a number from the menu.');
+                    return send(msg.from, MENUS.LOGOUT_CONFIRM);
+                } else if (choice === 6) {
+                    // Redirect to Google Sync Confirm
+                    await convexClient.mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.GOOGLE_SYNC_CONFIRM
+                    });
+                    return send(msg.from, MENUS.GOOGLE_SYNC_CONFIRM);
+                } else if (choice === 7) {
+                    // Redirect to Phone Sync Settings
+                    await convexClient.mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.PHONE_SYNC_SETTINGS
+                    });
+                    const text = MENUS.PHONE_SYNC_SETTINGS.replace('{{status}}', sessionRecord.phoneSyncEnabled ? '✅ Enabled' : '❌ Disabled');
+                    return send(msg.from, text);
+                } else if (!isNaN(choice)) {
+                    await send(msg.from, 'Invalid option. Reply with a number from the menu.');
+                }
+                break;
+
+            case MENU_STATES.GOOGLE_SYNC_CONFIRM:
+                if (choice === 1) {
+                    const authUrl = googleAuthService.getAuthUrl();
+                    await send(msg.from, `*Google Authorization Link*\n\n1. Open this link: ${authUrl}\n2. Sign in and authorize.\n3. You will be redirected to a page (e.g., localhost). Copy the 'code=' parameter from the URL.\n4. Send it here like this: *$auth YOUR_CODE*`);
+                } else if (choice === 2) {
+                    // Cancel -> Back
+                    await (convexClient as any).mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.MAIN_MENU
+                    });
+                    return send(msg.from, MENUS.MAIN_MENU);
+                }
+                break;
+
+            case MENU_STATES.PHONE_SYNC_SETTINGS:
+                if (choice === 1 || choice === 2) {
+                    const action = choice === 1 ? 'Enable' : 'Disable';
+                    const result = choice === 1 ? 'automatically UPDATED' : 'NOT updated';
+                    
+                    await (convexClient as any).mutation(api.sessions.updateDraftMessage, {
+                        sessionId: sessionRecord._id,
+                        draftMessage: action
+                    });
+
+                    await (convexClient as any).mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.PHONE_SYNC_CONFIRM
+                    });
+
+                    return send(msg.from, MENUS.PHONE_SYNC_CONFIRM
+                        .replace('{{action}}', action)
+                        .replace('{{result}}', result)
+                    );
+                } else if (choice === 3) {
+                    await (convexClient as any).mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.MAIN_MENU
+                    });
+                    return send(msg.from, MENUS.MAIN_MENU);
+                }
+                break;
+
+            case MENU_STATES.PHONE_SYNC_CONFIRM:
+                if (choice === 1) {
+                    const action = sessionRecord.draftMessage;
+                    const enabled = action === 'Enable';
+                    
+                    await (convexClient as any).mutation(api.sessions.togglePhoneSync, { 
+                        sessionId: sessionRecord._id, 
+                        enabled 
+                    });
+                    
+                    await send(msg.from, `Phone Sync ${enabled ? 'enabled' : 'disabled'}! ✅`);
+                    
+                    await (convexClient as any).mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.MAIN_MENU
+                    });
+                    return send(msg.from, MENUS.MAIN_MENU);
+                } else if (choice === 2) {
+                    await (convexClient as any).mutation(api.sessions.updateMenuState, {
+                        sessionId: sessionRecord._id,
+                        menuState: MENU_STATES.PHONE_SYNC_SETTINGS
+                    });
+                    const text = MENUS.PHONE_SYNC_SETTINGS.replace('{{status}}', sessionRecord.phoneSyncEnabled ? '✅ Enabled' : '❌ Disabled');
+                    return send(msg.from, text);
                 }
                 break;
 
             case MENU_STATES.LOGOUT_CONFIRM:
                 if (choice === 1) {
-                    await client.sendMessage(msg.from, 'Logging out... 🚪');
+                    await send(msg.from, 'Logging out... 🚪');
                     await client.logout();
-                } else {
+                } else if (choice === 2) {
                     // Cancel -> Back to main menu
-                    await convexClient.mutation(api.sessions.updateMenuState, {
+                    await (convexClient as any).mutation(api.sessions.updateMenuState, {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.MAIN_MENU
                     });
-                    return client.sendMessage(msg.from, MENUS.MAIN_MENU);
+                    return send(msg.from, MENUS.MAIN_MENU);
                 }
                 break;
 
@@ -433,14 +637,14 @@ async function initializeWorker() {
                         enabled 
                     });
                     
-                    await client.sendMessage(msg.from, `Auto-save ${enabled ? 'enabled' : 'disabled'}! ✅`);
+                    await send(msg.from, `Auto-save ${enabled ? 'enabled' : 'disabled'}! ✅`);
                     
                     // Back to main menu
                     await (convexClient as any).mutation(api.sessions.updateMenuState, {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.MAIN_MENU
                     });
-                    return client.sendMessage(msg.from, MENUS.MAIN_MENU);
+                    return send(msg.from, MENUS.MAIN_MENU);
                 } else {
                     // Back to settings menu
                     await (convexClient as any).mutation(api.sessions.updateMenuState, {
@@ -448,22 +652,25 @@ async function initializeWorker() {
                         menuState: MENU_STATES.AUTO_SAVE_SETTINGS
                     });
                     const text = MENUS.AUTO_SAVE_SETTINGS.replace('{{status}}', sessionRecord.autoSaveEnabled ? '✅ Enabled' : '❌ Disabled');
-                    return client.sendMessage(msg.from, text);
+                    return send(msg.from, text);
                 }
                 break;
 
             default:
-                if (currentState !== MENU_STATES.IDLE) {
-                    await client.sendMessage(msg.from, 'Type $start to see the menu.');
+                if (currentState !== MENU_STATES.IDLE && !isNaN(choice)) {
+                    await send(msg.from, 'Unknown command. Type $start to see the menu.');
                     await (convexClient as any).mutation(api.sessions.updateMenuState, {
                         sessionId: sessionRecord._id,
                         menuState: MENU_STATES.IDLE
                     });
                 }
         }
-    };
+    } catch (globalErr: any) {
+        console.error('❌ CRITICAL ERROR in handleMessage:', globalErr);
+    }
+};
 
-    client.on('message', handleMessage);
+    // client.on('message', handleMessage); // Removed to prevent double-processing
     client.on('message_create', handleMessage);
 
     client.on('disconnected', async (reason) => {

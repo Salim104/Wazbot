@@ -23,6 +23,10 @@ export default defineSchema({
     draftMessage: v.optional(v.string()), // Temporary storage for current announcement draft
     lastActivity: v.number(), // timestamp for timeout logic
     autoSaveEnabled: v.boolean(),
+    phoneSyncEnabled: v.optional(v.boolean()),
+    googleAccessToken: v.optional(v.string()),
+    googleRefreshToken: v.optional(v.string()),
+    googleTokenExpiry: v.optional(v.number()),
     metrics: v.object({
       saved: v.number(),
       unsaved: v.number(),
@@ -33,6 +37,7 @@ export default defineSchema({
   contacts: defineTable({
     sessionId: v.id("sessions"),
     waId: v.string(), // full serialized WID
+    googleContactId: v.optional(v.string()), // resourceName from Google People API
     isSaved: v.boolean(),
     isOptedOut: v.boolean(),
     metadata: v.object({

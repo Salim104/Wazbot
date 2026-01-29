@@ -47,6 +47,18 @@ export const saveContact = mutation({
   },
 });
 
+export const getContact = query({
+  args: { sessionId: v.id("sessions"), waId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("contacts")
+      .withIndex("by_session_and_waId", (q) =>
+        q.eq("sessionId", args.sessionId).eq("waId", args.waId)
+      )
+      .unique();
+  },
+});
+
 export const getContacts = query({
     args: { sessionId: v.id("sessions") },
     handler: async (ctx, args) => {
@@ -55,4 +67,33 @@ export const getContacts = query({
             .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
             .collect();
     }
+});
+
+export const updateGoogleContactId = mutation({
+  args: {
+    contactId: v.id("contacts"),
+    googleContactId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.contactId, { googleContactId: args.googleContactId });
+  },
+});
+
+export const toggleOptOut = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    waId: v.string(),
+    optedOut: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const contact = await ctx.db
+      .query("contacts")
+      .withIndex("by_session_and_waId", (q) =>
+        q.eq("sessionId", args.sessionId).eq("waId", args.waId)
+      )
+      .unique();
+    if (contact) {
+      await ctx.db.patch(contact._id, { isOptedOut: args.optedOut });
+    }
+  },
 });

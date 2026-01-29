@@ -4,6 +4,7 @@ import { api } from '../convex/_generated/api';
 import { Client } from 'whatsapp-web.js';
 import * as dotenv from 'dotenv';
 import { Id } from '../convex/_generated/dataModel';
+import { googleAuthService } from './googleAuth';
 
 dotenv.config();
 
@@ -26,18 +27,75 @@ export function setupQueues(whatsappClients: Map<Id<"sessions">, Client>) {
         const client = whatsappClients.get(sessionId);
         if (!client) throw new Error(`Client not found for session ${sessionId}`);
 
+        // Fetch session for Google tokens
+        const sessionRecord = await convexClient.query(api.sessions.getById as any, { sessionId });
+
         let count = 0;
         for (const waId of waIds) {
             try {
                 const contact = await client.getContactById(waId);
-                // In V1, we simulate "saving" for now or trigger the actual save if possible
-                // WWebJS save() might depend on context, so we'll log it as "tracked" in Convex.
+                const metadata = { name: contact.name || contact.pushname, lastInteraction: Date.now() };
                 
-                await convexClient.mutation(api.contacts.saveContact, {
+                // 1. Save to Convex
+                const contactId = await (convexClient as any).mutation(api.contacts.saveContact, {
                     sessionId,
                     waId,
-                    metadata: { name: contact.name || contact.pushname, lastInteraction: Date.now() }
+                    metadata
                 });
+
+                // 2. Sync to Google if connected
+                if (sessionRecord?.googleAccessToken) {
+                    try {
+                        const tokens = {
+                            access_token: sessionRecord.googleAccessToken,
+                            refresh_token: sessionRecord.googleRefreshToken,
+                            expiry_date: sessionRecord.googleTokenExpiry
+                        };
+                        
+                        // Note: For simplicity in bulk, we sync everyone who doesn't have a record yet
+                        // In a real app, we'd check googleContactId first to avoid duplicates
+                        console.log(`🔄 Bulk-Syncing ${waId} to Google...`);
+                        const googleRes = await googleAuthService.syncContact(tokens, {
+                            name: metadata.name,
+                            phone: `+${waId.split('@')[0]}`
+                        });
+
+                        if (googleRes?.resourceName) {
+                            await (convexClient as any).mutation(api.contacts.updateGoogleContactId, {
+                                contactId,
+                                googleContactId: googleRes.resourceName
+                            });
+                        }
+                    } catch (gErr: any) {
+                        console.warn(`⚠️ Google Bulk Sync warning for ${waId}: ${gErr.message}`);
+                    }
+                }
+
+                // 3. Sync to Phone directly if enabled (Milestone 7)
+                if (sessionRecord?.phoneSyncEnabled) {
+                    try {
+                        const nameParts = metadata.name.split(' ');
+                        const firstName = nameParts[0] || 'WazBot';
+                        const lastName = nameParts.slice(1).join(' ') || 'Contact';
+                        
+                        // Use contact.number to resolve real number from LID
+                        const realNumber = contact.number;
+
+                        if (realNumber) {
+                            console.log(`📱 Bulk-Syncing ${waId} (${realNumber}) directly to phone...`);
+                            await (client as any).saveOrEditAddressbookContact(
+                                realNumber,
+                                firstName,
+                                lastName,
+                                true
+                            );
+                        } else {
+                            console.warn(`⚠️ Bulk sync could not resolve a real number for ${waId}`);
+                        }
+                    } catch (nErr: any) {
+                        console.warn(`⚠️ Native Bulk Sync warning for ${waId}: ${nErr.message}`);
+                    }
+                }
 
                 count++;
                 // Progress update

@@ -21,6 +21,7 @@ export const create = mutation({
       menuState: "IDLE",
       lastActivity: Date.now(),
       autoSaveEnabled: false,
+      phoneSyncEnabled: false,
       metrics: {
         saved: 0,
         unsaved: 0,
@@ -139,6 +140,16 @@ export const updateStorageId = mutation({
     }
   },
 });
+
+export const togglePhoneSync = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.sessionId, { phoneSyncEnabled: args.enabled });
+  },
+});
 export const updateDraftMessage = mutation({
   args: {
     sessionId: v.id("sessions"),
@@ -163,5 +174,30 @@ export const updateInitialMetrics = mutation({
         },
       });
     }
+  },
+});
+export const getById = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.sessionId);
+  },
+});
+
+export const saveGoogleTokens = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    expiryDate: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const patch: any = {
+      googleAccessToken: args.accessToken,
+      googleTokenExpiry: args.expiryDate,
+    };
+    if (args.refreshToken) {
+      patch.googleRefreshToken = args.refreshToken;
+    }
+    await ctx.db.patch(args.sessionId, patch);
   },
 });
