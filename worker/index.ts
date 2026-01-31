@@ -231,12 +231,23 @@ async function initializeWorker() {
       const fromMe = msg.fromMe;
       const ownerWid = sessionRecord.ownerWid;
 
-      // Owner messages are those FROM the owner, not TO the owner
-      // We need to exclude messages sent BY the bot (fromMe === true)
-      const isOwnerMessage = !fromMe && from === ownerWid;
+      // Owner messages detection:
+      // - Messages FROM owner: fromMe=true AND from=ownerWid (owner sending commands)
+      // - Bot messages to ignore: fromMe=true AND to=ownerWid (bot sending menus to owner)
+      // - Other contact messages: fromMe=false AND from!=ownerWid
+      
+      // Owner messages are those sent BY the owner (fromMe=true, from=ownerWid)
+      // NOT messages sent TO the owner by the bot (fromMe=true, to=ownerWid)
+      const isOwnerMessage = fromMe && from === ownerWid;
+      const isBotMessageToOwner = fromMe && to === ownerWid && from !== ownerWid;
 
       if (isOwnerMessage) {
         console.log(`📩 Owner command: "${body.substring(0, 15)}"`);
+      }
+
+      if (isBotMessageToOwner) {
+        console.log(`🤖 Bot message to owner - ignoring`);
+        return; // Ignore bot's own messages to owner
       }
 
       if (!isOwnerMessage && !fromMe && !msg.isStatus) {
