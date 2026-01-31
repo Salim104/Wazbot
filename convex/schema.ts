@@ -37,6 +37,7 @@ export default defineSchema({
   contacts: defineTable({
     sessionId: v.id("sessions"),
     waId: v.string(), // full serialized WID
+    phoneNumber: v.optional(v.string()), // resolved real phone number
     googleContactId: v.optional(v.string()), // resourceName from Google People API
     isSaved: v.boolean(),
     isOptedOut: v.boolean(),

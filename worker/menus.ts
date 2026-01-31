@@ -12,6 +12,7 @@ export const MENU_STATES = {
     GOOGLE_SYNC_CONFIRM: 'GOOGLE_SYNC_CONFIRM',
     PHONE_SYNC_SETTINGS: 'PHONE_SYNC_SETTINGS',
     PHONE_SYNC_CONFIRM: 'PHONE_SYNC_CONFIRM',
+    RE_SYNC_CONFIRM: 'RE_SYNC_CONFIRM',
 };
 
 export const MENUS = {
@@ -23,6 +24,7 @@ export const MENUS = {
 5. 🚪 Logout
 6. 🌐 Google Sync Settings (Optional)
 7. 📱 Phone Contact Sync (Native)
+8. 🔄 Re-sync All Contacts
 
 _Reply with a number to choose._`,
 
@@ -82,6 +84,12 @@ Current Status: {{status}}
 New contacts will be {{result}} to your phone's physical address book.
 
 1. ✅ Confirm
+2. ❌ Cancel`,
+
+    RE_SYNC_CONFIRM: `*🔄 Confirm Re-sync All Contacts?*
+This will attempt to sync ALL your already-saved contacts to Google (if connected) and your Phone's Address Book.
+
+1. ✅ Start Re-sync
 2. ❌ Cancel`,
 };
 

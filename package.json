@@ -22,7 +22,7 @@
     "puppeteer": "^24.36.1",
     "qrcode-terminal": "^0.12.0",
     "redis": "^5.10.0",
-    "whatsapp-web.js": "github:BenyFilho/whatsapp-web.js#fix-saveOrEditAddressbookContact"
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js"
   },
   "devDependencies": {
     "@types/node": "^25.0.10",

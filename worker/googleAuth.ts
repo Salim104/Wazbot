@@ -43,10 +43,31 @@ export class GoogleAuthService {
     }
 
     /**
+     * Refresh the access token using the refresh token
+     */
+    async refreshAccessToken(refreshToken: string) {
+        this.oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const { credentials } = await this.oauth2Client.refreshAccessToken();
+        return credentials;
+    }
+
+    /**
      * Create or update a contact in Google Contacts
      */
     async syncContact(tokens: any, contact: { name?: string, phone: string }, existingGoogleId?: string) {
         this.oauth2Client.setCredentials(tokens);
+        
+        // 🧠 TOKEN REFRESH LOGIC: Check if expired
+        if (tokens.expiry_date && Date.now() > tokens.expiry_date - 60000) {
+            console.log('🔄 Google access token expired, refreshing...');
+            if (tokens.refresh_token) {
+                const newTokens = await this.refreshAccessToken(tokens.refresh_token);
+                this.oauth2Client.setCredentials(newTokens);
+                // Note: Caller should update the DB with newTokens if needed, 
+                // but for this request we continue with the refreshed client.
+            }
+        }
+
         const people = google.people({ version: 'v1', auth: this.oauth2Client });
 
         const phoneResource = {

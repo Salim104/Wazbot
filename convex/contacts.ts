@@ -5,6 +5,7 @@ export const saveContact = mutation({
   args: {
     sessionId: v.id("sessions"),
     waId: v.string(),
+    phoneNumber: v.optional(v.string()),
     metadata: v.object({
       name: v.optional(v.string()),
       lastInteraction: v.number(),
@@ -21,12 +22,14 @@ export const saveContact = mutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         isSaved: true,
+        phoneNumber: args.phoneNumber || existing.phoneNumber,
         metadata: args.metadata,
       });
     } else {
       await ctx.db.insert("contacts", {
         sessionId: args.sessionId,
         waId: args.waId,
+        phoneNumber: args.phoneNumber,
         isSaved: true,
         isOptedOut: false,
         metadata: args.metadata,
