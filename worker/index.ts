@@ -231,16 +231,15 @@ async function initializeWorker() {
       const fromMe = msg.fromMe;
       const ownerWid = sessionRecord.ownerWid;
 
-      const isOwner =
-        from === ownerWid ||
-        (fromMe && to === ownerWid) ||
-        (fromMe && from === ownerWid);
+      // Owner messages are those FROM the owner, not TO the owner
+      // We need to exclude messages sent BY the bot (fromMe === true)
+      const isOwnerMessage = !fromMe && from === ownerWid;
 
-      if (isOwner) {
+      if (isOwnerMessage) {
         console.log(`📩 Owner command: "${body.substring(0, 15)}"`);
       }
 
-      if (!isOwner && !fromMe && !msg.isStatus) {
+      if (!isOwnerMessage && !fromMe && !msg.isStatus) {
         // Milestone 3 logic: Auto-save context
         if (sessionRecord.autoSaveEnabled) {
           const contact = await msg.getContact();
@@ -455,6 +454,10 @@ async function initializeWorker() {
       }
 
       // --- OWNER ONLY LOGIC ---
+      if (!isOwnerMessage) {
+        return; // Ignore non-owner messages and bot's own messages
+      }
+
       const currentState = sessionRecord.menuState;
       const input = body.trim();
 
