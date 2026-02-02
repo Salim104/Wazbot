@@ -31,29 +31,22 @@ This will:
 
 **What to choose:**
 
-- **"What would you like to configure?"** → Choose `Create a new project`
-- **Project name:** → Enter `wazbot` (or your preferred name)
-- **Team:** → Choose your team or create a new one
+- **"What### 1. Environment Setup
+Create a `.env` file in the root directory:
+```env
+# Clerk (User Auth)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+CLERK_SECRET_KEY=...
 
-## Step 3: Update Environment Variables
+# Convex (Database & Functions)
+CONVEX_DEPLOYMENT=...
+NEXT_PUBLIC_CONVEX_URL=...
 
-After running `npx convex dev`, you'll see output like:
-
+# WhatsApp Worker
+OWNER_ID=... # Your Clerk User ID
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
 ```
-✔ Deployment URL: https://happy-animal-123.convex.cloud
-```
-
-Copy this URL and update your `.env` file:
-
-```bash
-# .env
-CONVEX_URL=https://happy-animal-123.convex.cloud
-CONVEX_DEPLOYMENT=dev:happy-animal-123
-OWNER_ID=  # Leave empty for now, we'll set this up next
-```
-
-The `.env.local` file will be auto-generated with the `CONVEX_DEPLOYMENT` value.
-
 ## Step 4: Create a Test User in Convex
 
 Once your Convex deployment is running:

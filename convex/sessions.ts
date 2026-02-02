@@ -26,6 +26,9 @@ export const create = mutation({
         saved: 0,
         unsaved: 0,
         announcementsSent: 0,
+        convexSyncFailed: 0,
+        phoneSyncFailed: 0,
+        pendingRetries: 0,
       },
     });
   },
@@ -176,28 +179,54 @@ export const updateInitialMetrics = mutation({
     }
   },
 });
+export const incrementAnnouncementsSent = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (session) {
+      const metrics = session.metrics || {
+        saved: 0,
+        unsaved: 0,
+        announcementsSent: 0,
+        convexSyncFailed: 0,
+        phoneSyncFailed: 0,
+        pendingRetries: 0,
+      };
+      await ctx.db.patch(args.sessionId, {
+        metrics: {
+          ...metrics,
+          announcementsSent: (metrics.announcementsSent || 0) + 1,
+        },
+      });
+    }
+  },
+});
+export const migrateMetrics = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const sessions = await ctx.db.query("sessions").collect();
+    for (const session of sessions) {
+      const metrics = session.metrics;
+      if (
+        metrics.convexSyncFailed === undefined ||
+        metrics.phoneSyncFailed === undefined ||
+        metrics.pendingRetries === undefined
+      ) {
+        await ctx.db.patch(session._id, {
+          metrics: {
+            ...metrics,
+            convexSyncFailed: metrics.convexSyncFailed ?? 0,
+            phoneSyncFailed: metrics.phoneSyncFailed ?? 0,
+            pendingRetries: metrics.pendingRetries ?? 0,
+          },
+        });
+      }
+    }
+  },
+});
 export const getById = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.sessionId);
-  },
-});
-
-export const saveGoogleTokens = mutation({
-  args: {
-    sessionId: v.id("sessions"),
-    accessToken: v.string(),
-    refreshToken: v.optional(v.string()),
-    expiryDate: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const patch: any = {
-      googleAccessToken: args.accessToken,
-      googleTokenExpiry: args.expiryDate,
-    };
-    if (args.refreshToken) {
-      patch.googleRefreshToken = args.refreshToken;
-    }
-    await ctx.db.patch(args.sessionId, patch);
   },
 });

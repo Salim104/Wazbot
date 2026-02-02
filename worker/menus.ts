@@ -5,11 +5,12 @@ export const MENU_STATES = {
     AUTO_SAVE_SETTINGS: 'AUTO_SAVE_SETTINGS',
     BULK_SAVE_PROGRESS: 'BULK_SAVE_PROGRESS',
     ANNOUNCEMENT_DRAFT: 'ANNOUNCEMENT_DRAFT',
+    ANNOUNCEMENT_PROGRESS: 'ANNOUNCEMENT_PROGRESS',
     ANNOUNCEMENT_CONFIRM: 'ANNOUNCEMENT_CONFIRM',
     LOGOUT_CONFIRM: 'LOGOUT_CONFIRM',
     BULK_SAVE_CONFIRM: 'BULK_SAVE_CONFIRM',
     AUTO_SAVE_CONFIRM: 'AUTO_SAVE_CONFIRM',
-    GOOGLE_SYNC_CONFIRM: 'GOOGLE_SYNC_CONFIRM',
+
     PHONE_SYNC_SETTINGS: 'PHONE_SYNC_SETTINGS',
     PHONE_SYNC_CONFIRM: 'PHONE_SYNC_CONFIRM',
     RE_SYNC_CONFIRM: 'RE_SYNC_CONFIRM',
@@ -22,9 +23,8 @@ export const MENUS = {
 3. 📥 Start Bulk Contact Save
 4. 📣 Send Announcement
 5. 🚪 Logout
-6. 🌐 Google Sync Settings (Optional)
-7. 📱 Phone Contact Sync (Native)
-8. 🔄 Re-sync All Contacts
+6. 📱 Phone Contact Sync (Native)
+7. 🔄 Re-sync All Contacts
 
 _Reply with a number to choose._`,
 
@@ -35,10 +35,16 @@ Current: {{status}}
 2. ❌ Disable Auto-save
 3. ⬅️ Back to Main Menu`,
 
-    ANNOUNCEMENT_DRAFT: `*Draft Announcement*
-Type the message you want to send to your saved contacts. 
+    ANNOUNCEMENT_DRAFT: `*📣 Send Announcement (Step 1)*
+Type the message you want to send to all your saved contacts. 
 
 _Or reply '0' to cancel._`,
+
+    ANNOUNCEMENT_PROGRESS: `*📣 Announcement in Progress*
+Sending messages...
+
+1. ⏸️ Pause
+2. ❌ Cancel`,
 
     ANNOUNCEMENT_CONFIRM: `*Confirm Announcement*
 Your message:
@@ -66,11 +72,6 @@ New contacts who message you will be {{result}}.
 1. ✅ Confirm
 2. ❌ Cancel`,
 
-    GOOGLE_SYNC_CONFIRM: `*🌐 Connect Google Contacts (Premium)*
-Link your Google Account to automatically sync WazBot contacts to your phone's address book.
-
-1. 🔗 Generate Link
-2. ❌ Cancel`,
 
     PHONE_SYNC_SETTINGS: `*📱 Native Phone Sync*
 Directly save contacts to your phone's address book.
@@ -97,7 +98,12 @@ export function getStatusProgress(metrics: any) {
     return `*WazBot Status*
 ✅ Saved: ${metrics.saved}
 ❓ Unsaved: ${metrics.unsaved}
-📢 Sent: ${metrics.announcementsSent}
+📢 Announcements Sent: ${metrics.announcementsSent}
+
+*Sync Health:*
+💾 Convex Failures: ${metrics.convexSyncFailed || 0}
+📱 Phone Sync Failures: ${metrics.phoneSyncFailed || 0}
+🔄 Pending Retries: ${metrics.pendingRetries || 0}
 
 0. ⬅️ Back`;
 }

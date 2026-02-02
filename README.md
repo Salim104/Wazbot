@@ -68,12 +68,14 @@ OWNER_ID=  # Get this after creating a user in Convex
 
 **📖 For detailed setup instructions, see [SETUP.md](./SETUP.md)**
 
-## 🎯 Key Features
-
-- **Owner-Only Menu System**: Only the WhatsApp account owner receives interactive bot commands
-- **Silent Customer Logging**: Customer messages are logged but not responded to automatically
-- **Session Persistence**: Uses RemoteAuth to survive worker restarts
-- **Real-time Dashboard**: (Coming soon) Next.js dashboard with live QR codes and metrics
+## ✨ Key Features
+- **Auto Contact Save**: Automatically captures and saves new contact numbers from incoming messages.
+- **Bulk Save**: Scans all active chats and groups to harvest contacts efficiently.
+- **Native Phone Sync**: Directly synchronizes contacts to your physical phone's address book.
+- **Announcement System**: Send broadcast messages to saved contacts efficiently.
+- **Sync & Retry Logic**: Robust background processing with exponential backoff for failed sync operations.
+- **Real-time Metrics**: Detailed dashboard showing sync health and announcement progress.
+des and metrics
 - **Multi-tenant Ready**: Each business owner gets isolated WhatsApp sessions
 - **Self-Annealing**: System learns from errors and improves directives automatically
 

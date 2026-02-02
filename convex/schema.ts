@@ -24,13 +24,14 @@ export default defineSchema({
     lastActivity: v.number(), // timestamp for timeout logic
     autoSaveEnabled: v.boolean(),
     phoneSyncEnabled: v.optional(v.boolean()),
-    googleAccessToken: v.optional(v.string()),
-    googleRefreshToken: v.optional(v.string()),
-    googleTokenExpiry: v.optional(v.number()),
+
     metrics: v.object({
       saved: v.number(),
       unsaved: v.number(),
       announcementsSent: v.number(),
+      convexSyncFailed: v.number(),
+      phoneSyncFailed: v.number(),
+      pendingRetries: v.number(),
     }),
   }).index("by_ownerId", ["ownerId"]),
 
@@ -38,9 +39,14 @@ export default defineSchema({
     sessionId: v.id("sessions"),
     waId: v.string(), // full serialized WID
     phoneNumber: v.optional(v.string()), // resolved real phone number
-    googleContactId: v.optional(v.string()), // resourceName from Google People API
+
     isSaved: v.boolean(),
     isOptedOut: v.boolean(),
+    convexSyncStatus: v.optional(v.union(v.literal("success"), v.literal("failed"), v.literal("pending"))),
+    phoneSyncStatus: v.optional(v.union(v.literal("success"), v.literal("failed"), v.literal("pending"))),
+    lastSyncAttempt: v.optional(v.number()),
+    syncErrorMessage: v.optional(v.string()),
+    retryCount: v.optional(v.number()),
     metadata: v.object({
       name: v.optional(v.string()),
       lastInteraction: v.number(),
@@ -57,7 +63,9 @@ export default defineSchema({
       v.literal("PENDING"),
       v.literal("PROCESSING"),
       v.literal("COMPLETED"),
-      v.literal("FAILED")
+      v.literal("FAILED"),
+      v.literal("PAUSED"),
+      v.literal("CANCELLED"),
     ),
     progress: v.number(),
     total: v.number(),
@@ -71,4 +79,16 @@ export default defineSchema({
     fromMe: v.boolean(),
     timestamp: v.number(),
   }).index("by_sessionId", ["sessionId"]),
+
+  retryQueue: defineTable({
+    contactId: v.id("contacts"),
+    sessionId: v.id("sessions"),
+    waId: v.string(),
+    retryType: v.union(v.literal("convex"), v.literal("phone")),
+    attempts: v.number(),
+    lastAttempt: v.number(),
+    errorMessage: v.string(),
+    metadata: v.any(),
+  }).index("by_sessionId", ["sessionId"]),
 });
+

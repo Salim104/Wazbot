@@ -2,8 +2,7 @@ import "dotenv/config";
 import { Client, RemoteAuth } from "whatsapp-web.js";
 import qrcode from "qrcode-terminal";
 import { ConvexHttpClient } from "convex/browser";
-import { google } from "googleapis";
-import { OAuth2Client } from "google-auth-library";
+
 import { api } from "../convex/_generated/api";
 import { ConvexStore } from "./convexStore";
 import { Id } from "../convex/_generated/dataModel";
@@ -23,7 +22,7 @@ if (!CONVEX_URL || !OWNER_ID) {
 const convexClient = new ConvexHttpClient(CONVEX_URL);
 const store = new ConvexStore(CONVEX_URL, OWNER_ID);
 
-import { googleAuthService } from "./googleAuth";
+
 
 // --- WINDOWS STABILITY SHIELD ---
 process.on("uncaughtException", (err) => {
@@ -339,55 +338,6 @@ async function initializeWorker() {
               });
             }
 
-            // 3. Sync to Google if connected (Milestone 6)
-            if (sessionRecord.googleAccessToken && digitsOnly) {
-              try {
-                const tokens = {
-                  access_token: sessionRecord.googleAccessToken,
-                  refresh_token: sessionRecord.googleRefreshToken,
-                  expiry_date: sessionRecord.googleTokenExpiry,
-                };
-
-                // Check if already synced
-                const dbContacts = await convexClient.query(
-                  api.contacts.getContacts,
-                  { sessionId: sessionRecord._id },
-                );
-                const dbContact = dbContacts.find(
-                  (c: any) => c.waId === msg.from,
-                );
-
-                if (!dbContact?.googleContactId) {
-                  console.log(
-                    `🔄 Syncing ${msg.from} [Resolved: ${digitsOnly}] to Google Contacts...`,
-                  );
-                  const googleRes = await googleAuthService.syncContact(
-                    tokens,
-                    {
-                      name: metadata.name,
-                      phone: `+${digitsOnly}`,
-                    },
-                  );
-
-                  if (googleRes && googleRes.resourceName) {
-                    await (convexClient as any).mutation(
-                      api.contacts.updateGoogleContactId,
-                      {
-                        contactId: dbContact?._id || contactId,
-                        googleContactId: googleRes.resourceName,
-                      },
-                    );
-                    console.log(
-                      `✅ Synced to Google: ${googleRes.resourceName}`,
-                    );
-                  }
-                }
-              } catch (googleErr: any) {
-                console.warn(
-                  `⚠️ Google Sync non-critical error: ${googleErr.message}`,
-                );
-              }
-            }
 
             // 4. Sync to Phone directly if enabled (Milestone 7)
             if (sessionRecord.phoneSyncEnabled && digitsOnly) {
@@ -400,15 +350,12 @@ async function initializeWorker() {
                   `📱 Syncing to Address Book: ${digitsOnly} (${metadata.name})`,
                 );
 
-                // 🧠 FIX: Use official saveOrEditAddressbookContact method
-                // For LID contacts, we only sync to phone if we successfully resolved the number
-                // syncToAddressbook=true will attempt to sync to the physical phone address book
-                try {
-                  // CRITICAL: Only enable phone sync for non-LID OR successfully resolved LID contacts
-                  const shouldSyncToPhone =
-                    !isLidContact ||
-                    (isLidContact && digitsOnly && !digitsOnly.includes("lid"));
+                // CRITICAL: Only enable phone sync for non-LID OR successfully resolved LID contacts
+                const shouldSyncToPhone =
+                  !isLidContact ||
+                  (isLidContact && digitsOnly && !digitsOnly.includes("lid"));
 
+                try {
                   if (shouldSyncToPhone) {
                     await (client as any).saveOrEditAddressbookContact(
                       digitsOnly,
@@ -419,6 +366,12 @@ async function initializeWorker() {
                     console.log(
                       `✅ Native Phone Sync successful for ${digitsOnly}`,
                     );
+                    
+                    // Update success status
+                    await (convexClient as any).mutation(api.contacts.updateSyncStatus, {
+                      contactId,
+                      phoneSyncStatus: "success",
+                    });
                   } else {
                     // For unresolved LID contacts, just save to WhatsApp without phone sync
                     await (client as any).saveOrEditAddressbookContact(
@@ -435,32 +388,26 @@ async function initializeWorker() {
                   console.warn(
                     `⚠️ Address Book Sync failed: ${syncErr.message}`,
                   );
-
-                  // If official method fails, the contact is still saved to Convex/Google
-                  // This is not critical - just means physical phone sync didn't work
+                  // Add to retry queue
+                  if (contactId) {
+                    await (convexClient as any).mutation(api.retryQueue.addToRetryQueue, {
+                      contactId,
+                      sessionId: sessionRecord._id,
+                      waId: msg.from,
+                      retryType: "phone",
+                      errorMessage: syncErr.message,
+                    });
+                  }
                 }
               } catch (nativeErr: any) {
                 console.warn(
                   `⚠️ Native Sync internal WA block for ${msg.from}: ${nativeErr.message}`,
-                );
-                console.log(
-                  "💡 TIP: Use Google Sync (Option 6) for 100% reliability with hidden numbers.",
                 );
               }
             }
           }
         }
 
-        // Milestone 4: STOP handling
-        if (body.trim().toUpperCase() === "STOP") {
-          console.log(`Contact ${msg.from} opted out.`);
-          await (convexClient as any).mutation(api.contacts.toggleOptOut, {
-            sessionId: sessionRecord._id,
-            waId: msg.from,
-            optedOut: true,
-          });
-          msg.reply("You have been opted out of future announcements. ✅");
-        }
         return;
       }
 
@@ -475,7 +422,7 @@ async function initializeWorker() {
       console.log(`Owner Input: "${input}" | State: ${currentState}`);
 
       // 1. Entry Point
-      if (input === "$start") {
+      if (input === "$start" || currentState === MENU_STATES.IDLE || currentState === undefined) {
         console.log("Sending Main Menu to owner...");
         await (convexClient as any).mutation(api.sessions.updateMenuState, {
           sessionId: sessionRecord._id,
@@ -484,34 +431,7 @@ async function initializeWorker() {
         return send(msg.from, MENUS.MAIN_MENU);
       }
 
-      if (input.startsWith("$auth ")) {
-        const code = input.substring(6).trim();
-        try {
-          const tokens = await googleAuthService.getTokensFromCode(code);
-          await (convexClient as any).mutation(api.sessions.saveGoogleTokens, {
-            sessionId: sessionRecord._id,
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
-            expiryDate: tokens.expiry_date,
-          });
-          await send(
-            msg.from,
-            "✅ Google Account connected successfully! WazBot will now sync contacts to your phone automatically.",
-          );
 
-          // Return to main menu
-          await (convexClient as any).mutation(api.sessions.updateMenuState, {
-            sessionId: sessionRecord._id,
-            menuState: MENU_STATES.MAIN_MENU,
-          });
-          return send(msg.from, MENUS.MAIN_MENU);
-        } catch (err: any) {
-          return send(
-            msg.from,
-            `❌ Failed to connect Google Account: ${err.message}`,
-          );
-        }
-      }
 
       // 2. State-based numeric routing
       const choice = parseInt(input);
@@ -544,6 +464,21 @@ async function initializeWorker() {
             });
             return send(msg.from, MENUS.BULK_SAVE_CONFIRM);
           } else if (choice === 4) {
+            // Announcement (Check if active)
+            const activeOp = await convexClient.query(api.operations.getBySession, { 
+              sessionId: sessionRecord._id, 
+              type: "ANNOUNCEMENT" 
+            });
+            
+            if (activeOp && activeOp.status === "PROCESSING") {
+              await convexClient.mutation(api.sessions.updateMenuState, {
+                sessionId: sessionRecord._id,
+                menuState: MENU_STATES.ANNOUNCEMENT_PROGRESS,
+              });
+              const progressMsg = `${MENUS.ANNOUNCEMENT_PROGRESS}\n\n📊 *Progress: ${activeOp.progress}/${activeOp.total} sent*`;
+              return send(msg.from, progressMsg);
+            }
+
             // Send Announcement - Step 1: Draft
             await (convexClient as any).mutation(api.sessions.updateMenuState, {
               sessionId: sessionRecord._id,
@@ -558,14 +493,8 @@ async function initializeWorker() {
             });
             return send(msg.from, MENUS.LOGOUT_CONFIRM);
           } else if (choice === 6) {
-            // Redirect to Google Sync Confirm
-            await convexClient.mutation(api.sessions.updateMenuState, {
-              sessionId: sessionRecord._id,
-              menuState: MENU_STATES.GOOGLE_SYNC_CONFIRM,
-            });
-            return send(msg.from, MENUS.GOOGLE_SYNC_CONFIRM);
-          } else if (choice === 7) {
             // Redirect to Phone Sync Settings
+
             await convexClient.mutation(api.sessions.updateMenuState, {
               sessionId: sessionRecord._id,
               menuState: MENU_STATES.PHONE_SYNC_SETTINGS,
@@ -575,8 +504,9 @@ async function initializeWorker() {
               sessionRecord.phoneSyncEnabled ? "✅ Enabled" : "❌ Disabled",
             );
             return send(msg.from, text);
-          } else if (choice === 8) {
+          } else if (choice === 7) {
             // Redirect to Re-sync Confirm
+
             await (convexClient as any).mutation(api.sessions.updateMenuState, {
               sessionId: sessionRecord._id,
               menuState: MENU_STATES.RE_SYNC_CONFIRM,
@@ -587,23 +517,6 @@ async function initializeWorker() {
               msg.from,
               "Invalid option. Reply with a number from the menu.",
             );
-          }
-          break;
-
-        case MENU_STATES.GOOGLE_SYNC_CONFIRM:
-          if (choice === 1) {
-            const authUrl = googleAuthService.getAuthUrl();
-            await send(
-              msg.from,
-              `*Google Authorization Link*\n\n1. Open this link: ${authUrl}\n2. Sign in and authorize.\n3. You will be redirected to a page (e.g., localhost). Copy the 'code=' parameter from the URL.\n4. Send it here like this: *$auth YOUR_CODE*`,
-            );
-          } else if (choice === 2) {
-            // Cancel -> Back
-            await (convexClient as any).mutation(api.sessions.updateMenuState, {
-              sessionId: sessionRecord._id,
-              menuState: MENU_STATES.MAIN_MENU,
-            });
-            return send(msg.from, MENUS.MAIN_MENU);
           }
           break;
 
@@ -846,7 +759,7 @@ async function initializeWorker() {
               { sessionId: sessionRecord._id },
             );
             const activeWids = savedContacts
-              .filter((c: any) => c.isSaved && !c.isOptedOut)
+              .filter((c: any) => c.isSaved)
               .map((c: any) => c.waId);
 
             if (activeWids.length === 0) {
@@ -875,12 +788,12 @@ async function initializeWorker() {
 
             await (convexClient as any).mutation(api.sessions.updateMenuState, {
               sessionId: sessionRecord._id,
-              menuState: MENU_STATES.MAIN_MENU,
+              menuState: MENU_STATES.ANNOUNCEMENT_PROGRESS,
             });
 
             return client.sendMessage(
               msg.from,
-              `Sending announcement to ${activeWids.length} contacts... 📣\nI will notify you when finished.`,
+              MENUS.ANNOUNCEMENT_PROGRESS + `\n\nStarting broadcast to ${activeWids.length} contacts... 📣`,
             );
           } else if (choice === 2) {
             // Edit
@@ -896,6 +809,38 @@ async function initializeWorker() {
               menuState: MENU_STATES.MAIN_MENU,
             });
             return client.sendMessage(msg.from, MENUS.MAIN_MENU);
+          }
+
+        case MENU_STATES.ANNOUNCEMENT_PROGRESS:
+          if (choice === 1) {
+            // Pause
+            await convexClient.mutation(api.operations.pauseOperation, {
+              sessionId: sessionRecord._id,
+              type: "ANNOUNCEMENT",
+            });
+            await convexClient.mutation(api.sessions.updateMenuState, {
+              sessionId: sessionRecord._id,
+              menuState: MENU_STATES.MAIN_MENU,
+            });
+            return send(msg.from, "Announcement paused. ⏸️ returning to Main Menu...");
+          } else if (choice === 2) {
+            // Cancel / Stop
+            await convexClient.mutation(api.operations.cancelOperation, {
+              sessionId: sessionRecord._id,
+              type: "ANNOUNCEMENT",
+            });
+            await convexClient.mutation(api.sessions.updateMenuState, {
+              sessionId: sessionRecord._id,
+              menuState: MENU_STATES.MAIN_MENU,
+            });
+            return send(msg.from, "Announcement stopped and cancelled. 🛑 returning to Main Menu...");
+          } else {
+            // Go back
+            await convexClient.mutation(api.sessions.updateMenuState, {
+              sessionId: sessionRecord._id,
+              menuState: MENU_STATES.MAIN_MENU,
+            });
+            return send(msg.from, MENUS.MAIN_MENU);
           }
 
         case MENU_STATES.STATUS_METRICS:
@@ -1027,6 +972,79 @@ async function initializeWorker() {
   const clientsMap = new Map();
   clientsMap.set(session!._id, client);
   setupQueues(clientsMap);
+
+
+  // Milestone 3: Background Retry Processor
+  async function processRetries() {
+    console.log("🔄 Running background retry processor...");
+    try {
+      const retries = await convexClient.query(api.retryQueue.getRetryQueue, {
+        sessionId: session!._id,
+      });
+
+      for (const retry of retries) {
+        // Simple backoff check: retry after 2^attempts * 1 minute
+        const nextAttemptTime = retry.lastAttempt + Math.pow(2, retry.attempts) * 60000;
+        if (Date.now() < nextAttemptTime) continue;
+
+        if (retry.attempts >= 3) {
+          console.log(`❌ Max retries reached for ${retry.waId} (${retry.retryType})`);
+          await (convexClient as any).mutation(api.retryQueue.removeFromRetryQueue, {
+            retryId: retry._id,
+            sessionId: session!._id,
+          });
+          continue;
+        }
+
+        console.log(`🔄 Retrying ${retry.retryType} sync for ${retry.waId} (Attempt ${retry.attempts + 1})...`);
+        
+        try {
+          if (retry.retryType === "phone") {
+            const contact = await client.getContactById(retry.waId);
+            const digitsOnly = contact.number.replace(/\D/g, "");
+            const nameParts = (retry.metadata.name || contact.name || "WazBot Contact").split(" ");
+            const firstName = nameParts[0] || "WazBot";
+            const lastName = nameParts.slice(1).join(" ") || "Contact";
+
+            await (client as any).saveOrEditAddressbookContact(
+              digitsOnly,
+              firstName,
+              lastName,
+              true,
+            );
+            
+            console.log(`✅ Retry successful for ${retry.waId}`);
+            await (convexClient as any).mutation(api.contacts.updateSyncStatus, {
+              contactId: retry.contactId,
+              phoneSyncStatus: "success",
+            });
+            await (convexClient as any).mutation(api.retryQueue.removeFromRetryQueue, {
+              retryId: retry._id,
+              sessionId: session!._id,
+            });
+          }
+          // Convex retries are handled by the next call's attempt or here if needed
+        } catch (err: any) {
+          console.warn(`⚠️ Retry attempt ${retry.attempts + 1} failed: ${err.message}`);
+          await (convexClient as any).mutation(api.retryQueue.addToRetryQueue, {
+            contactId: retry.contactId,
+            sessionId: session!._id,
+            waId: retry.waId,
+            retryType: retry.retryType,
+            errorMessage: err.message,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error in retry processor:", err);
+    }
+    
+    // Run every 5 minutes
+    setTimeout(processRetries, 5 * 60 * 1000);
+  }
+
+  // Start retry processor
+  processRetries();
 
   client.initialize();
 }

@@ -10,6 +10,7 @@
 
 import type * as contacts from "../contacts.js";
 import type * as operations from "../operations.js";
+import type * as retryQueue from "../retryQueue.js";
 import type * as sessions from "../sessions.js";
 import type * as storage from "../storage.js";
 import type * as users from "../users.js";
@@ -23,6 +24,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
   operations: typeof operations;
+  retryQueue: typeof retryQueue;
   sessions: typeof sessions;
   storage: typeof storage;
   users: typeof users;
