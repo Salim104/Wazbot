@@ -10,10 +10,10 @@ export const MENU_STATES = {
     LOGOUT_CONFIRM: 'LOGOUT_CONFIRM',
     BULK_SAVE_CONFIRM: 'BULK_SAVE_CONFIRM',
     AUTO_SAVE_CONFIRM: 'AUTO_SAVE_CONFIRM',
-
-    PHONE_SYNC_SETTINGS: 'PHONE_SYNC_SETTINGS',
     PHONE_SYNC_CONFIRM: 'PHONE_SYNC_CONFIRM',
-    RE_SYNC_CONFIRM: 'RE_SYNC_CONFIRM',
+    EXCLUSION_MENU: 'EXCLUSION_MENU',
+    EXCLUSION_ADD: 'EXCLUSION_ADD',
+    EXCLUSION_REMOVE: 'EXCLUSION_REMOVE',
 };
 
 export const MENUS = {
@@ -22,17 +22,17 @@ export const MENUS = {
 2. ⚙️ Auto-save Settings
 3. 📥 Start Bulk Contact Save
 4. 📣 Send Announcement
-5. 🚪 Logout
-6. 📱 Phone Contact Sync (Native)
-7. 🔄 Re-sync All Contacts
+5. 🚫 Manage Exclusions
+6. 🚪 Logout
 
-_Reply with a number to choose._`,
+_Reply with a number (1 to 6) to choose._`,
 
-    AUTO_SAVE_SETTINGS: `*Auto-save Settings*
-Current: {{status}}
+    SYNC_SETTINGS: `*⚙️ Sync Settings*
+1. Auto-save: {{autoSave}}
+2. Phone Sync: {{phoneSync}}
 
-1. ✅ Enable Auto-save
-2. ❌ Disable Auto-save
+1. 📥 Toggle Auto-save
+2. 📱 Toggle Phone Sync
 3. ⬅️ Back to Main Menu`,
 
     ANNOUNCEMENT_DRAFT: `*📣 Send Announcement (Step 1)*
@@ -72,26 +72,38 @@ New contacts who message you will be {{result}}.
 1. ✅ Confirm
 2. ❌ Cancel`,
 
-
-    PHONE_SYNC_SETTINGS: `*📱 Native Phone Sync*
-Directly save contacts to your phone's address book.
-Current Status: {{status}}
-
-1. ✅ Enable
-2. ❌ Disable
-3. 🔙 Back`,
-
-    PHONE_SYNC_CONFIRM: `*⚠️ Confirm Phone Sync {{action}}?*
-New contacts will be {{result}} to your phone's physical address book.
+    PHONE_SYNC_CONFIRM: `*📱 Confirm Phone Sync {{action}}?*
+WazBot will {{result}} your phone address book when saving contacts.
 
 1. ✅ Confirm
 2. ❌ Cancel`,
 
-    RE_SYNC_CONFIRM: `*🔄 Confirm Re-sync All Contacts?*
-This will attempt to sync ALL your already-saved contacts to Google (if connected) and your Phone's Address Book.
+    EXCLUSION_MENU: `*🚫 Exclusion List*
+Excluded contacts will NOT receive announcements.
 
-1. ✅ Start Re-sync
-2. ❌ Cancel`,
+Currently Excluded: {{count}}
+
+1. 👀 View Excluded Numbers
+2. ➕ Add Number to Exclusion
+3. ➖ Remove Number from Exclusion
+4. ⬅️ Back to Main Menu`,
+
+    EXCLUSION_ADD: `*➕ Add to Exclusion List*
+Type the phone number to exclude (with country code).
+
+*Example:* 27605229784
+
+_Or reply '0' to cancel._`,
+
+    EXCLUSION_REMOVE: `*➖ Remove from Exclusion List*
+{{list}}
+
+_Type the number to remove, or '0' to cancel._`,
+
+    EXCLUSION_VIEW: `*👀 Excluded Numbers*
+{{list}}
+
+0. ⬅️ Back`,
 };
 
 export function getStatusProgress(metrics: any) {
@@ -101,7 +113,6 @@ export function getStatusProgress(metrics: any) {
 📢 Announcements Sent: ${metrics.announcementsSent}
 
 *Sync Health:*
-💾 Convex Failures: ${metrics.convexSyncFailed || 0}
 📱 Phone Sync Failures: ${metrics.phoneSyncFailed || 0}
 🔄 Pending Retries: ${metrics.pendingRetries || 0}
 

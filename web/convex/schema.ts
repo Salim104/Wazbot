@@ -5,6 +5,8 @@ export default defineSchema({
   users: defineTable({
     clerkId: v.string(),
     email: v.string(),
+    plan: v.optional(v.union(v.literal("FREE"), v.literal("PRO"))),
+    isAdmin: v.optional(v.boolean()),
   }).index("by_clerkId", ["clerkId"]),
 
   sessions: defineTable({
@@ -24,6 +26,8 @@ export default defineSchema({
     lastActivity: v.number(), // timestamp for timeout logic
     autoSaveEnabled: v.boolean(),
     phoneSyncEnabled: v.optional(v.boolean()),
+    pairingCode: v.optional(v.string()),
+    pairingPhoneNumber: v.optional(v.string()),
 
     metrics: v.object({
       saved: v.number(),

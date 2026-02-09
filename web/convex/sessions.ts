@@ -12,9 +12,22 @@ export const getByOwner = query({
   },
 });
 
+export const getAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("sessions").collect();
+  },
+});
+
 export const create = mutation({
   args: { ownerId: v.id("users") },
   handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("sessions")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
+      .unique();
+    if (existing) return existing._id;
+
     return await ctx.db.insert("sessions", {
       ownerId: args.ownerId,
       status: "INITIALIZING",
@@ -74,6 +87,34 @@ export const saveOwnerDetails = mutation({
       ownerNumber: args.ownerNumber,
       status: "CONNECTED",
       qrCode: undefined, // Clear QR once connected
+      pairingCode: undefined, // Clear pairing code
+      pairingPhoneNumber: undefined, // Clear phone number
+    });
+  },
+});
+
+export const requestPairingCode = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    phoneNumber: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.sessionId, {
+      pairingPhoneNumber: args.phoneNumber,
+      qrCode: undefined, // Clear QR if switching to code
+    });
+  },
+});
+
+export const savePairingCode = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    pairingCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.sessionId, {
+      pairingCode: args.pairingCode,
+      status: "WAIT_QR", // Use same state for frontend polling
     });
   },
 });
@@ -228,5 +269,35 @@ export const getById = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.sessionId);
+  },
+});
+export const getByClerkId = query({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkId))
+      .unique();
+    if (!user) return null;
+
+    return await ctx.db
+      .query("sessions")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .unique();
+  },
+});
+
+export const resetAnnouncementCounter = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (session) {
+      await ctx.db.patch(args.sessionId, {
+        metrics: {
+          ...session.metrics,
+          announcementsSent: 0,
+        },
+      });
+    }
   },
 });

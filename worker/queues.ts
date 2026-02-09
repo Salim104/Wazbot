@@ -1,9 +1,9 @@
 import { Queue, Worker, Job } from "bullmq";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../convex/_generated/api";
+import { api } from "../web/convex/_generated/api";
 import { Client } from "whatsapp-web.js";
 import * as dotenv from "dotenv";
-import { Id } from "../convex/_generated/dataModel";
+import { Id } from "../web/convex/_generated/dataModel";
 
 dotenv.config();
 
@@ -138,7 +138,8 @@ export function setupQueues(whatsappClients: Map<Id<"sessions">, Client>) {
 
       // Report
       const report = `*✅ Bulk Save Complete!*\n\n📊 *Results:*\n• ${successCount}/${waIds.length} successful\n• ${failCount} failed\n${failedContacts.length > 0 ? `\n*❌ Errors:*\n${failedContacts.slice(0, 5).map(c => `- ${c.waId}: ${c.reason}`).join("\n")}` : ""}`;
-      await client.sendMessage(sessionRecord!.ownerId + "@c.us", report);
+      const reportTo = sessionRecord?.ownerWid || (sessionRecord?.ownerId + "@c.us");
+      await client.sendMessage(reportTo, report);
     },
     { connection, concurrency: 1 }
   );
@@ -152,6 +153,9 @@ export function setupQueues(whatsappClients: Map<Id<"sessions">, Client>) {
       if (!client) throw new Error(`Client not found for session ${sessionId}`);
 
       const sessionRecord = await convexClient.query(api.sessions.getById, { sessionId });
+      
+      // Increment announcement count once per broadcast
+      await (convexClient as any).mutation(api.sessions.incrementAnnouncementsSent, { sessionId });
       
       let sentCount = 0;
       let failCount = 0;
@@ -174,7 +178,6 @@ export function setupQueues(whatsappClients: Map<Id<"sessions">, Client>) {
           await client.sendMessage(waId, message);
           sentCount++;
           
-          await (convexClient as any).mutation(api.sessions.incrementAnnouncementsSent, { sessionId });
         } catch (err) {
           failCount++;
         }
@@ -190,7 +193,8 @@ export function setupQueues(whatsappClients: Map<Id<"sessions">, Client>) {
       }
 
       const report = `*✅ Announcement Complete!*\n\n• Sent: ${sentCount}\n• Failed: ${failCount}\n• Duration: ${Math.round((Date.now() - startTime) / 60000)}m`;
-      await client.sendMessage(sessionRecord!.ownerId + "@c.us", report);
+      const reportTo = sessionRecord?.ownerWid || (sessionRecord?.ownerId + "@c.us");
+      await client.sendMessage(reportTo, report);
     },
     { connection, concurrency: 1 }
   );
